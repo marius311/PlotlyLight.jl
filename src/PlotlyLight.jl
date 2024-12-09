@@ -1,12 +1,14 @@
 module PlotlyLight
 
 using Artifacts: @artifact_str
+using Base64
 using Downloads: download
 using Random: randstring
 
 using JSON3: JSON3
 using EasyConfig: Config
 using Cobweb: Cobweb, h, IFrame, Node
+using CodecZlib
 
 #-----------------------------------------------------------------------------# exports
 export Config, preset, Plot, plot
@@ -14,11 +16,11 @@ export Config, preset, Plot, plot
 #-----------------------------------------------------------------------------# __init__
 function __init__()
     # Hack since extensions with REPL are wonky
-    for M in Base.loaded_modules_order
-        if Symbol(M) == :REPL
-            @eval Base.display(::$M.REPLDisplay, o::Plot) = Cobweb.preview(html_page(o))
-        end
-    end
+    # for M in Base.loaded_modules_order
+    #     if Symbol(M) == :REPL
+    #         @eval Base.display(::$M.REPLDisplay, o::Plot) = Cobweb.preview(html_page(o))
+    #     end
+    # end
 end
 
 include("json.jl")
@@ -46,7 +48,7 @@ Base.@kwdef mutable struct Settings
     page_css::Cobweb.Node   = h.style("html, body { padding: 0px; margin: 0px; }")
     use_iframe::Bool        = false
     iframe_style            = "display:block; border:none; min-height:350px; min-width:350px; width:100%; height:100%"
-    src_inject::Vector      = []
+    src_inject::Vector      = [json_compression_src_inject...]
 end
 settings::Settings = Settings()
 
@@ -162,7 +164,7 @@ function Base.show(io::IO, ::MIME"text/html", o::Plot)
         show(io, MIME("text/html"), html_iframe(o)) :
         show(io, MIME("text/html"), html_div(o))
 end
-Base.show(io::IO, ::MIME"juliavscode/html", o) = show(io, MIME("text/html"), o)
+Base.show(io::IO, ::MIME"juliavscode/html", o::Plot) = show(io, MIME("text/html"), o::Plot)
 
 #-----------------------------------------------------------------------------# preset
 # `preset_template_<X>` overwrites `settings.layout.template`
