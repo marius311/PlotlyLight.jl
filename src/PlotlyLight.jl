@@ -19,6 +19,40 @@ include("json.jl")
 
 artifact(x...) = joinpath(artifact"plotly_artifacts", x...)
 
+legend_spacing_src_inject = function (o)
+    spacing = o.layout.legend.spacing
+    if spacing != Config()
+        h.script(""";
+        function tightenLegend(gd, spacing) {
+            const items = gd.querySelectorAll('.legend .groups');
+            let y = 0;
+            items.forEach(el => {
+                el.setAttribute('transform', `translate(0,\${y})`);
+                y += spacing;
+            });
+            const legend = gd.querySelector('.legend');
+            if (legend) legend.style.visibility = 'visible';
+        }
+        const style = document.createElement('style');
+        style.innerHTML = `
+            .legend {
+                visibility: hidden;
+            }
+            `;
+        document.head.appendChild(style);
+        document.addEventListener("DOMContentLoaded", function () {
+            var gd = document.querySelector('div.js-plotly-plot');
+            if (gd) {
+                tightenLegend(gd, $spacing);
+                gd.on('plotly_afterplot', () => tightenLegend(gd, $spacing));
+            }
+        });
+        """)
+    else
+        h.div()
+    end
+end
+
 function __init__()
 end
 
@@ -43,7 +77,7 @@ Base.@kwdef mutable struct Settings
     page_css::Cobweb.Node   = h.style("html, body { padding: 0px; margin: 0px; }")
     use_iframe::Bool        = false
     iframe_style            = "display:block; border:none; min-height:350px; min-width:350px; width:100%; height:100%"
-    src_inject::Vector      = [json_compression_src_inject...]
+    src_inject::Vector      = Any[json_compression_src_inject..., legend_spacing_src_inject]
 end
 settings::Settings = Settings()
 
@@ -123,8 +157,11 @@ end
 #-----------------------------------------------------------------------------# display
 rand_id() = "plotlyx-" * join(rand('a':'z', 10))
 
+inject_for(inject::Base.Callable, o::Plot) = inject(o)
+inject_for(inject, o::Plot) = inject
+
 function html_div(o::Plot, id=rand_id())
-    h.div(class="plotlylight-parent", settings.src_inject..., settings.src, settings.div(; id), NewPlotScript(o, settings, id))
+    h.div(class="plotlylight-parent", inject_for.(settings.src_inject, Ref(o))..., settings.src, settings.div(; id), NewPlotScript(o, settings, id))
 end
 
 function html_page(o::Plot, id=rand_id())
@@ -135,7 +172,7 @@ function html_page(o::Plot, id=rand_id())
             h.meta(name="description", content="PlotlyLight.jl Plot"),
             h.title("PlotlyLight.jl"),
             settings.page_css,
-            settings.src_inject...,
+            inject_for.(settings.src_inject, Ref(o))...,
             settings.src
         ),
         h.body(h.div(class="plotlylight-parent", settings.div(; id), NewPlotScript(o, settings, id)))
