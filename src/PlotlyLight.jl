@@ -3,7 +3,8 @@ module PlotlyLight
 using Artifacts: @artifact_str
 using Base64
 using Downloads: download
-using Random: randstring
+using Dates
+using REPL
 
 using JSON3: JSON3
 using EasyConfig: Config
@@ -14,18 +15,12 @@ using CodecZlib
 export Config, preset, Plot, plot
 
 #-----------------------------------------------------------------------------# __init__
-function __init__()
-    # Hack since extensions with REPL are wonky
-    # for M in Base.loaded_modules_order
-    #     if Symbol(M) == :REPL
-    #         @eval Base.display(::$M.REPLDisplay, o::Plot) = Cobweb.preview(html_page(o))
-    #     end
-    # end
-end
-
 include("json.jl")
 
 artifact(x...) = joinpath(artifact"plotly_artifacts", x...)
+
+function __init__()
+end
 
 #-----------------------------------------------------------------------------# plotly::PlotlyArtifacts
 Base.@kwdef struct PlotlyArtifacts
@@ -80,7 +75,7 @@ mutable struct Plot
     data::Vector{Config}
     layout::Config
     config::Config
-    Plot(data::AbstractVector, layout = Config(), config = Config()) = new(Config.(data), Config(layout), Config(config))
+    Plot(data::AbstractVector=Config[], layout = Config(), config = Config()) = new(Config.(data), Config(layout), Config(config))
     Plot(data, layout = Config(), config = Config()) = new([Config(data)], Config(layout), Config(config))
 end
 
@@ -92,11 +87,6 @@ save(file::AbstractString, p::Plot) = save(p, file)
 (p::Plot)(; kw...) = p(Config(kw))
 (p::Plot)(data::Config) = (push!(p.data, data); return p)
 (p::Plot)(p2::Plot) = merge!(p, p2)
-
-function Plot(; kw...)
-    Base.depwarn("`Plot(; kw...)` is deprecated. Use `plot(; kw...)` instead.", :Plot, force=true)
-    plot(; kw...)
-end
 
 Base.getproperty(p::Plot, x::Symbol) = x in fieldnames(Plot) ? getfield(p, x) : (; kw...) -> p(plot(; type=x, kw...))
 Base.propertynames(p::Plot) = vcat(fieldnames(Plot)..., keys(plotly.schema.traces)...)
@@ -134,7 +124,7 @@ end
 rand_id() = "plotlyx-" * join(rand('a':'z', 10))
 
 function html_div(o::Plot, id=rand_id())
-    h.div(class="plotlylight-parent", settings.src, settings.src_inject..., settings.div(; id), NewPlotScript(o, settings, id))
+    h.div(class="plotlylight-parent", settings.src_inject..., settings.src, settings.div(; id), NewPlotScript(o, settings, id))
 end
 
 function html_page(o::Plot, id=rand_id())
@@ -164,7 +154,11 @@ function Base.show(io::IO, ::MIME"text/html", o::Plot)
         show(io, MIME("text/html"), html_iframe(o)) :
         show(io, MIME("text/html"), html_div(o))
 end
-Base.show(io::IO, ::MIME"juliavscode/html", o::Plot) = show(io, MIME("text/html"), o::Plot)
+Base.show(io::IO, ::MIME"juliavscode/html", o::Plot) = show(io, MIME("text/html"), o)
+Base.show(io::IO, ::MIME"text/plain", o::Plot) = print(io, "PlotlyLight.jl Plot")
+
+Base.display(::REPL.REPLDisplay, o::Plot) = Cobweb.preview(html_page(o); reuse=settings.reuse_preview)
+
 
 #-----------------------------------------------------------------------------# preset
 # `preset_template_<X>` overwrites `settings.layout.template`

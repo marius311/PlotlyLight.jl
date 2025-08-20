@@ -1,10 +1,5 @@
-using PlotlyLight
+using PlotlyLight, Cobweb, Test, Aqua, Dates, JSON3
 using PlotlyLight: settings, Plot, json
-using Cobweb
-using Cobweb: h
-using JSON3: JSON3
-using Test
-using Aqua
 
 html(x) = repr("text/html", x)
 
@@ -25,13 +20,14 @@ html(x) = repr("text/html", x)
     @test json(NaN) == "null"
     @test json(Inf) == "null"
     @test json(-Inf) == "null"
+    @test json(DateTime(2021,1,1)) == "\"2021-01-01 00:00:00\""
 end
 
 #-----------------------------------------------------------------------------# Plot methods
 @testset "Plot methods" begin
-    p = Plot(Config(x = 1:10, type=:scatter))
+    p = plot.scatter(x=1:10)
     @test p isa Plot
-    @test Plot(; x=1:10, type=:scatter) == p
+    @test plot(; x=1:10, type=:scatter) == p
     @test !occursin("Title", html(p))
     @test occursin("\"displaylogo\":false", html(p))
 

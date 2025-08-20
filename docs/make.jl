@@ -1,14 +1,12 @@
 using Documenter
 using PlotlyLight
 
-PlotlyLight.settings.use_iframe = true
+# PlotlyLight.settings.use_iframe = true
 
 makedocs(
     sitename = "PlotlyLight",
     modules = [PlotlyLight],
-    format = Documenter.HTML(
-        assets = [asset(PlotlyLight.plotly.url)]
-    ),
+    format = Documenter.HTML(),
     pages = [
         "index.md",
         "plotly_basics.md",
@@ -21,5 +19,6 @@ makedocs(
 
 
 deploydocs(
-    repo = "https://github.com/JuliaComputing/PlotlyLight.jl"
+    repo = "https://github.com/JuliaComputing/PlotlyLight.jl",
+    push_preview = true
 )
