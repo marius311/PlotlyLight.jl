@@ -1,6 +1,7 @@
 module PlotlyLight
 
 using Artifacts: @artifact_str
+using Base64
 using Downloads: download
 using Dates
 using REPL
@@ -8,6 +9,7 @@ using REPL
 using JSON3: JSON3
 using EasyConfig: Config
 using Cobweb: Cobweb, h, IFrame, Node
+using CodecZlib
 
 #-----------------------------------------------------------------------------# exports
 export Config, preset, Plot, plot
@@ -41,7 +43,7 @@ Base.@kwdef mutable struct Settings
     page_css::Cobweb.Node   = h.style("html, body { padding: 0px; margin: 0px; }")
     use_iframe::Bool        = false
     iframe_style            = "display:block; border:none; min-height:350px; min-width:350px; width:100%; height:100%"
-    src_inject::Vector      = []
+    src_inject::Vector      = Any[json_compression_src_inject...]
 end
 settings::Settings = Settings()
 
