@@ -36,8 +36,10 @@ json(io::IO, ::Union{Missing, Nothing}) = print(io, "null")
 json(io::IO, x::Bool) = print(io, x ? "true" : "false")
 
 # Arrays
-json(io::IO, x::AbstractVector) = json_join(io, x, ',', '[', ']')
-json(io::IO, x::AbstractArray) = json(io, eachslice(x; dims=1))
+_json_generic_arr(io::IO, x::AbstractVector) = json_join(io, x, ',', '[', ']')
+_json_generic_arr(io::IO, x::AbstractArray) = json(io, eachslice(x; dims=1))
+json(io::IO, x::AbstractVector) = _json_generic_arr(io, x)
+json(io::IO, x::AbstractArray) = _json_generic_arr(io, x)
 
 # Objects
 json(io::IO, x::Pair) = json(io, x.first, JSON(':'), x.second)
@@ -100,18 +102,26 @@ function _to_js_eltype(arr::AbstractArray{<:Integer})
 end
 
 function _json_num_arr(io::IO, arr)
-    js_arr = _to_js_eltype(arr)
-    T = eltype(js_arr)
-    base64_dat = base64encode(transcode(ZlibCompressor, Vector(reinterpret(UInt8, view(transpose(js_arr), :)))))
-    dims = join(size(js_arr), ',')
-    T_js = string(T)[1] * lowercase(string(T)[2:end])
-    print(io, "numArrFromBase64($(T_js)Array,'", base64_dat, "',", dims, ")")
+    if settings.compress
+        js_arr = _to_js_eltype(arr)
+        T = eltype(js_arr)
+        base64_dat = base64encode(transcode(ZlibCompressor, Vector(reinterpret(UInt8, view(transpose(js_arr), :)))))
+        dims = join(size(js_arr), ',')
+        T_js = string(T)[1] * lowercase(string(T)[2:end])
+        print(io, "numArrFromBase64($(T_js)Array,'", base64_dat, "',", dims, ")")
+    else
+        _json_generic_arr(io, arr)
+    end
 end
 
 function json(io::IO, arr::AbstractVector{<:AbstractString})
-    # store a (compressed) contatenation of the strings and indices where each element starts
-    base64_dat = base64encode(transcode(ZlibCompressor, join(arr)))
-    print(io, "strVecFromBase64('", base64_dat, "',")
-    json(io, length.(arr))
-    print(io, ")")
+    if settings.compress
+        # store a (compressed) contatenation of the strings and indices where each element starts
+        base64_dat = base64encode(transcode(ZlibCompressor, join(arr)))
+        print(io, "strVecFromBase64('", base64_dat, "',")
+        json(io, length.(arr))
+        print(io, ")")
+    else
+        _json_generic_arr(io, arr)
+    end
 end

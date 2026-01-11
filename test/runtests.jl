@@ -8,6 +8,9 @@ html(x) = repr("text/html", x)
     @test json(1) == "1"
     @test json(1.0) == "1.0"
     @test json(1//2) == "0.5"
+    @test json([1,2,3]) == "[1,2,3]"
+    @test json([1.0,2.0,3.0]) == "[1.0,2.0,3.0]"
+    @test json([1 2; 3 4]) == "[[1,2],[3,4]]"
     @test json((x=1,y=2)) == "{\"x\":1,\"y\":2}"
     @test json(nothing) == "null"
     @test json(true) == "true"
@@ -18,6 +21,7 @@ html(x) = repr("text/html", x)
     @test json(Inf) == "null"
     @test json(-Inf) == "null"
     @test json(DateTime(2021,1,1)) == "\"2021-01-01 00:00:00\""
+    preset.display.compress!(true)
     @test json(Int[1, 2]) == "numArrFromBase64(Uint8Array,'eJxjZAIAAAYABA==',2)"
     @test json(Int[1 2; 3 4]) == "numArrFromBase64(Uint8Array,'eJxjZGJmAQAAGAAL',2,2)"
     @test json(Float64[1, 2]) == "numArrFromBase64(Float32Array,'eJxjYGiwZ2BgcAAABIMBAA==',2)"
