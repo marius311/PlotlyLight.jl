@@ -66,13 +66,7 @@ function with_settings(f; kw...)
     end
 end
 
-function get_src_inject(s::Settings)
-    src_inject = s.src_inject
-    if s.compress
-        src_inject = union(src_inject, json_compression_src_inject)
-    end
-    return src_inject
-end
+get_src_inject(s::Settings) = s.src_inject
 
 #-----------------------------------------------------------------------------# utils/other
 attributes(t::Symbol) = plotly.schema.traces[t].attributes
@@ -84,8 +78,9 @@ mutable struct Plot
     data::Vector{Config}
     layout::Config
     config::Config
-    Plot(data::AbstractVector=Config[], layout = Config(), config = Config()) = new(Config.(data), Config(layout), Config(config))
-    Plot(data, layout = Config(), config = Config()) = new([Config(data)], Config(layout), Config(config))
+    frames::Vector{Config}
+    Plot(data::AbstractVector=Config[], layout = Config(), config = Config(); frames=Config[]) = new(Config.(data), Config(layout), Config(config), Config.(frames))
+    Plot(data, layout = Config(), config = Config(); frames=Config[]) = new([Config(data)], Config(layout), Config(config), Config.(frames))
 end
 
 Base.:(==)(a::Plot, b::Plot) = all(getfield(a,f) == getfield(b,f) for f in fieldnames(Plot))
@@ -100,13 +95,74 @@ save(file::AbstractString, p::Plot) = save(p, file)
 Base.getproperty(p::Plot, x::Symbol) = x in fieldnames(Plot) ? getfield(p, x) : (; kw...) -> p(plot(; type=x, kw...))
 Base.propertynames(p::Plot) = vcat(fieldnames(Plot)..., keys(plotly.schema.traces)...)
 
-Base.merge!(a::Plot, b::Plot) = (append!(a.data, b.data); merge!(a.layout, b.layout); merge!(a.config, b.config); a)
+function _merge_frame_pair(af::Config, bf::Config, na::Int, nb::Int)
+    ad = haskey(af, :data) ? af.data : [Config() for _ in 1:na]
+    bd = haskey(bf, :data) ? bf.data : [Config() for _ in 1:nb]
+    mf = Config()
+    mf.data = vcat(ad, bd)
+    for f in (af, bf), k in keys(f)
+        k === :data && continue
+        mf[k] = f[k]
+    end
+    return mf
+end
+
+_frame_name(f::Config) = haskey(f, :name) ? f.name : nothing
+
+function _merge_frames!(a::Plot, b::Plot, na::Int, nb::Int)
+    isempty(a.frames) && isempty(b.frames) && return
+    if isempty(a.frames)
+        # pad b's frames with empty configs for a's traces
+        for f in b.frames
+            bd = haskey(f, :data) ? f.data : [Config() for _ in 1:nb]
+            f.data = vcat([Config() for _ in 1:na], bd)
+        end
+        append!(a.frames, b.frames)
+        return
+    end
+    if isempty(b.frames)
+        # pad a's frames with empty configs for b's traces
+        for f in a.frames
+            ad = haskey(f, :data) ? f.data : [Config() for _ in 1:na]
+            f.data = vcat(ad, [Config() for _ in 1:nb])
+        end
+        return
+    end
+    # both have frames — must be same length
+    length(a.frames) == length(b.frames) || error("Cannot merge plots with different numbers of frames ($(length(a.frames)) vs $(length(b.frames)))")
+    # match by name if frames are named, otherwise positional
+    a_named = _frame_name(a.frames[1]) !== nothing
+    b_named = _frame_name(b.frames[1]) !== nothing
+    if a_named && b_named
+        b_by_name = Dict(_frame_name(f) => f for f in b.frames)
+        for i in eachindex(a.frames)
+            name = _frame_name(a.frames[i])
+            bf = get(b_by_name, name, nothing)
+            bf === nothing && error("Frame $(repr(name)) not found in second plot")
+            a.frames[i] = _merge_frame_pair(a.frames[i], bf, na, nb)
+        end
+    else
+        for i in eachindex(a.frames)
+            a.frames[i] = _merge_frame_pair(a.frames[i], b.frames[i], na, nb)
+        end
+    end
+end
+
+function Base.merge!(a::Plot, b::Plot)
+    na = length(a.data)
+    nb = length(b.data)
+    append!(a.data, b.data)
+    merge!(a.layout, b.layout)
+    merge!(a.config, b.config)
+    _merge_frames!(a, b, na, nb)
+    return a
+end
 
 #-----------------------------------------------------------------------------# plot
-function plot(; layout = Config(), config=Config(), type=:scatter, kw...)
+function plot(; layout = Config(), config=Config(), frames=Config[], type=:scatter, kw...)
     check_attributes(type; kw...)
     data = isempty(kw) ? Config[] : [Config(; type, kw...)]
-    Plot(data, layout, config)
+    Plot(data, layout, config; frames)
 end
 Base.propertynames(::typeof(plot)) = keys(plotly.schema.traces)
 Base.getproperty(::typeof(plot), type::Symbol) = (; kw...) -> plot(; type=type, kw...)
@@ -122,11 +178,21 @@ end
 function Base.show(io::IO, ::MIME"text/html", o::NewPlotScript)
     layout = merge(o.settings.layout, o.plot.layout)
     config = merge(o.settings.config, o.plot.config)
-    print(io, "<script>Plotly.newPlot(\"", o.id, "\",")
-    json(io, o.plot.data); print(io, ',')
-    json(io, layout); print(io, ',')
-    json(io, config)
-    print(io, ")</script>")
+    frames = o.plot.frames
+    if isempty(frames)
+        print(io, "<script>Plotly.newPlot(\"", o.id, "\",")
+        json(io, o.plot.data); print(io, ',')
+        json(io, layout); print(io, ',')
+        json(io, config)
+        print(io, ")</script>")
+    else
+        print(io, "<script>Plotly.newPlot(\"", o.id, "\",{data:")
+        json(io, o.plot.data); print(io, ",layout:")
+        json(io, layout); print(io, ",config:")
+        json(io, config); print(io, ",frames:")
+        json(io, frames)
+        print(io, "})</script>")
+    end
 end
 
 #-----------------------------------------------------------------------------# display

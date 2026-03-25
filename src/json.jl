@@ -47,37 +47,14 @@ json(io::IO, x::Union{NamedTuple, AbstractDict}) = json_join(io, pairs(x), ',', 
 
 
 
-# Compress certain array types for some (huge) space savings for large arrays
+# Compress certain array types using bdata format (decoded by plotly-three.js)
 
-json_compression_src_inject = [
-    h.script(src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js"),
-    h.script(raw"""
-    function numArrFromBase64(T, base64_dat, ...dims) {
-        arr = new T(fflate.unzlibSync(Uint8Array.from(atob(base64_dat), c => c.charCodeAt(0))).buffer)
-        if (dims.length == 1) {
-            return arr; 
-        } else if (dims.length == 2) {
-            arr2d = [];
-            for (let i = 0; i < arr.length; i += dims[1]) {
-                arr2d.push(arr.subarray(i, i + dims[1]));
-            }
-            return arr2d;
-        } else {
-            throw new Error(`>2 dims not implemented.`);
-        }
-    }
-    function strVecFromBase64(base64_dat, lens) {
-        strs = fflate.strFromU8(fflate.unzlibSync(Uint8Array.from(atob(base64_dat), c => c.charCodeAt(0))));
-        arr = [];
-        cur = 0;
-        for (var i = 0; i < lens.length; i++) {
-            arr.push(strs.slice(cur, cur + lens[i]));
-            cur += lens[i];
-        }
-        return arr;
-    }
-    """)
-]
+const _dtype_map = Dict(
+    Float32 => "f4", Float64 => "f8",
+    Int8 => "i1", UInt8 => "u1",
+    Int16 => "i2", UInt16 => "u2",
+    Int32 => "i4", UInt32 => "u4",
+)
 
 json(io::IO, arr::AbstractVector{<:AbstractFloat}) = _json_num_arr(io, arr)
 json(io::IO, arr::AbstractMatrix{<:AbstractFloat}) = _json_num_arr(io, arr)
@@ -101,27 +78,34 @@ function _to_js_eltype(arr::AbstractArray{<:Integer})
     return convert(AbstractArray{T}, arr)
 end
 
-function _json_num_arr(io::IO, arr)
+function _encode_and_maybe_compress(dat::Vector{UInt8})
     if settings.compress
-        js_arr = _to_js_eltype(arr)
-        T = eltype(js_arr)
-        base64_dat = base64encode(transcode(ZlibCompressor, Vector(reinterpret(UInt8, view(transpose(js_arr), :)))))
-        dims = join(size(js_arr), ',')
-        T_js = string(T)[1] * lowercase(string(T)[2:end])
-        print(io, "numArrFromBase64($(T_js)Array,'", base64_dat, "',", dims, ")")
-    else
-        _json_generic_arr(io, arr)
+        dat = transcode(ZlibCompressor, dat)
     end
+    return base64encode(dat)
+end
+
+function _json_num_arr(io::IO, arr)
+    js_arr = _to_js_eltype(arr)
+    d = Dict{String,Any}(
+        "dtype" => _dtype_map[eltype(js_arr)],
+        "bdata" => _encode_and_maybe_compress(Vector(reinterpret(UInt8, view(transpose(js_arr), :)))),
+        "shape" => size(js_arr)
+    )
+    if settings.compress
+        d["compress"] = "zlib"
+    end
+    json(io, d)
 end
 
 function json(io::IO, arr::AbstractVector{<:AbstractString})
+    d = Dict{String,Any}(
+        "dtype" => "str",
+        "bdata" => _encode_and_maybe_compress(Vector{UInt8}(join(arr))),
+        "blen" => collect(sizeof.(arr))
+    )
     if settings.compress
-        # store a (compressed) contatenation of the strings and indices where each element starts
-        base64_dat = base64encode(transcode(ZlibCompressor, join(arr)))
-        print(io, "strVecFromBase64('", base64_dat, "',")
-        json(io, length.(arr))
-        print(io, ")")
-    else
-        _json_generic_arr(io, arr)
+        d["compress"] = "zlib"
     end
+    json(io, d)
 end
